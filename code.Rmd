@@ -118,6 +118,10 @@ sj <-  train %>% filter(city == "sj")
 
 sj$total_cases[sj$total_cases > 100] <- 100 
 
+pca <- preProcess(sj[1:25], "pca")
+
+sj <- predict(pca, sj)
+
 training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
 
 sj_tr <- sj[training_size, ]
@@ -135,6 +139,9 @@ iq <- train %>% filter(city == "iq")
 iq$total_cases[iq$total_cases > 30] <- 30
 
 
+pca <- preProcess(iq[1:25], "pca")
+
+iq <- predict(pca,iq)
 
 training_size <- createDataPartition(iq$total_cases, p = 0.7, list = F)  
 
@@ -157,7 +164,7 @@ names(sj)
 sj$city <- NULL
 
 
-rf_reg <- randomForest(y=sj$total_cases,x=sj[2:23],importance=T,method="rf") # starting in 2 to not use the variable "type"
+rf_reg <- randomForest(y=sj$total_cases,x=sj[,2:14],importance=T,method="rf") # starting in 2 to not use the variable "type"
 
 imp <- as.data.frame(varImp(rf_reg))
 imp <- data.frame(overall = imp$Overall,
@@ -186,7 +193,7 @@ names(sj_tr)
 bestmtry_rf <- tuneRF(x = sj_tr[ , head(unique(x$names),6)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
+rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
 
 
 ```
