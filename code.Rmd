@@ -35,6 +35,7 @@ features_te
 
 submission_format
 
+
 ```
 
 create two dataset, train and test
@@ -115,6 +116,8 @@ San Juan
 ```{r}
 sj <-  train %>% filter(city == "sj") 
 
+sj$total_cases[sj$total_cases > 100] <- 100 
+
 training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
 
 sj_tr <- sj[training_size, ]
@@ -129,6 +132,10 @@ Iquito
 ```{r}
 iq <- train %>% filter(city == "iq")
 
+iq$total_cases[iq$total_cases > 30] <- 30
+
+
+
 training_size <- createDataPartition(iq$total_cases, p = 0.7, list = F)  
 
 iq_tr <- iq[training_size, ]
@@ -138,6 +145,9 @@ iq_val <- iq[-training_size, ]
 ```
 
 # Modelling San Juan
+
+
+
 
 Get most relevant variables with all data (Var imp)
 
@@ -199,7 +209,7 @@ train model to predict Test (All train)
 bestmtry_rf<-tuneRF(sj[ , head(unique(x$names),6)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=sj$total_cases,x=sj[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
+rf_reg<-randomForest(y=sj$total_cases,x=sj[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
 
 
 ```
@@ -226,14 +236,10 @@ sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te
 
 sj_te$total_cases <- predict(rf_reg, sj_te)
 
-sj_te$city <- NULL
-sj_te$type <- NULL
-
 names(sj_te)
 names(sj_tr)
 
-ggplot(rbind(sj_tr,sj_te), aes(week_start_date,total_cases)) + geom_line()
-
+#ggplot(rbind(sj_tr,sj_te), aes(week_start_date,total_cases)) + geom_line()
 
 
 ```
@@ -245,10 +251,10 @@ Get most relevant variables (Var imp)
 ```{r}
 
 
-iq$city <- NULL
+
 iq_tr$city <- NULL
 
-rf_reg<-randomForest(y=iq$total_cases,x=iq[2:23],importance=T,method="rf")
+rf_reg<-randomForest(y=iq$total_cases,x=iq[3:23],importance=T,method="rf")
 
 imp <- as.data.frame(varImp(rf_reg))
 imp <- data.frame(overall = imp$Overall,
@@ -266,7 +272,7 @@ train model
 bestmtry_rf<-tuneRF(iq_tr[ , head(unique(x$names),6)], iq_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=iq_tr$total_cases,x=iq_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
+rf_reg<-randomForest(y=iq_tr$total_cases,x=iq_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=4)
 
 
 ```
@@ -289,7 +295,7 @@ train model to predict Test (All train)
 bestmtry_rf<-tuneRF(iq[ , head(unique(x$names),6)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=iq$total_cases,x=iq[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
+rf_reg<-randomForest(y=iq$total_cases,x=iq[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
 
 ```
 
@@ -298,7 +304,6 @@ rf_reg<-randomForest(y=iq$total_cases,x=iq[ , head(unique(x$names),6)],importanc
 ```{r}
 
 iq_te <- test %>% filter(city == "iq")
-
 
 ```
 
@@ -313,12 +318,32 @@ iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date")] ,  apply(X = iq_te
 
 ```{r}
 
-pred_iq_te <- predict(rf_reg, iq_te)
+iq_te$total_cases <- predict(rf_reg, iq_te)
 
+```
+
+# Final Submission using RF
+
+```{r}
+names(iq_te)
+
+rf_final_df <- rbind(iq_te, sj_te)
+
+submission_format$total_cases <- NULL
+
+submission_rf <- left_join(submission_format, y = rf_final_df, by = c("year","weekofyear", "city"))
+
+submission_rf <- submission_rf %>% select(city, year, weekofyear, total_cases)
+
+submission_rf$total_cases <- base::round(submission_rf$total_cases,0)
+
+write.csv(submission_rf, "submission_rf.csv", quote = F, row.names = F)
 
 ```
 
 
+
+# Prophet San Juan
 
 
 ```{r}
@@ -335,37 +360,101 @@ forecast$year <- year(forecast$ds)
 
 forecast$weekofyear <- week(forecast$ds)
 
-View(forecast)
+
 
 dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
 ```
 
-# Match Prophet and submission
+### Match Prophet and submission
 
 ```{r}
-
-calculate_start_of_week = function(week, year) {
-  date <- ymd(paste(year, 1, 1, sep="-"))
-  week(date) = week
-  return(date)
-}
-
-names(submission_format)
-
-submission_format$day <- calculate_start_of_week(submission_format$weekofyear, year = submission_format$year)
 
 
 forecast$ds <- as.Date(forecast$ds)
 
-left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat")], by = c("year","weekofyear"))
+forecast$city <- "sj"
+
+forecast_sj <- forecast
+
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
 
 
 
 ```
+
+# Prophet Iquito
+
+
+
+```{r}
+
+iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y"))
+
+iq_prohet_model <- prophet(iq_prophet)
+
+future <- make_future_dataframe(iq_prohet_model, 500, freq = "week")
+
+forecast <- predict(iq_prohet_model, future)
+
+forecast$year <- year(forecast$ds)
+
+forecast$weekofyear <- week(forecast$ds)
+
+
+dyplot.prophet(x = iq_prohet_model, fcst = forecast)
+
+```
+
+### Match Prophet and submission
+
 ```{r}
 
 
+forecast$ds <- as.Date(forecast$ds)
 
+forecast$city <- "iq"
+
+forecast <- rbind(forecast_sj, forecast)
+
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
+
+submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 week year
+
+
+```
+
+### Change negative values to 0
+
+```{r}
+
+submission$yhat[submission$yhat < 0 ] <- 0
+
+submission$total_cases <- submission$yhat
+
+submission <- submission %>% select(city, year, weekofyear, total_cases)
+
+submission$total_cases <- base::round(submission$total_cases,0)
+
+write.csv(submission, "submission.csv", quote = F, row.names = F)
+
+
+
+```
+
+
+## Final final submission with the mean of both previous
+
+```{r}
+
+submission_mean <- submission 
+
+a <- cbind(submission$total_cases, submission_rf$total_cases)
+
+submission_mean$total_cases <- round(apply(X = a, MARGIN = 1, function(x) mean(x)),0)
+
+write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F)
+
+  
 ```
 
