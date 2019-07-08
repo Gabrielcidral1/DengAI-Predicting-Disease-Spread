@@ -2,13 +2,20 @@
 title: "DengAI-Predicting-Disease-Spread"
 author: "gabriel"
 date: "8/7/2019"
-output: html_document
+output:
+  rmdformats::readthedown:
+    thumbnails: true
+    lightbox: true
+    toc_depth: 3
+    gallery: true
+    highlight: tango
+---
 ---
 
-loading packages and data
+## loading packages and data
 
 ```{r}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate)
 
 features_tr <- read_csv("dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -89,33 +96,24 @@ The missing values will be replaced by a forecast
 
 ```{r}
 
-sj <-  train %>% filter(city == "sj") 
-
 
 train <- cbind(train[ , c("city", "type", "week_start_date")] ,  apply(X = train[, which(sapply(train,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 
 ```
 
-
-
-train a dummy model with both cities together
-
 ```{r}
-
-train$type <- NULL
-
-# fit <- train(total_cases ~.,
-#       data= train,
-#       method = "rf")
+ggplot(filter(all, city=="sj"), aes(week_start_date, y = total_cases)) + geom_line()
+ggplot(filter(all, city=="iq"), aes(week_start_date, y = total_cases)) + geom_line()
 
 ```
+
 
 ## split the cities to train models
 
 San Juan
 ```{r}
-
+sj <-  train %>% filter(city == "sj") 
 
 training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
 
@@ -139,18 +137,26 @@ iq_val <- iq[-training_size, ]
 
 ```
 
-##Modelling San Juan
+# Modelling San Juan
 
-Get most relevant variables (Var imp)
+Get most relevant variables with all data (Var imp)
 
 ```{r}
+
+names(sj)
 sj$city <- NULL
-sj_tr$city <- NULL
-rf_reg<-randomForest(y=sj$total_cases,x=sj[1:23],importance=T,method="rf")
+
+
+rf_reg <- randomForest(y=sj$total_cases,x=sj[2:23],importance=T,method="rf") # starting in 2 to not use the variable "type"
 
 imp <- as.data.frame(varImp(rf_reg))
 imp <- data.frame(overall = imp$Overall,
            names   = rownames(imp))
+x <- imp[order(imp$overall,decreasing = T),]
+
+x$names <- as.character(x$names)
+
+
 imp[order(imp$overall,decreasing = T),]
 
 ```
@@ -158,11 +164,19 @@ train model
 
 ```{r}
 
+
+
+sj_tr$city <- NULL
+
+sj_tr$type <- NULL
+
 # Get the best mtry
-bestmtry_rf<-tuneRF(sj_tr[ , c(3,1,2,5,11,17,7,4)], sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+names(sj_tr)
+
+bestmtry_rf <- tuneRF(x = sj_tr[ , head(unique(x$names),6)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , c(3,1,2,5,11,17,7,4)],importance=T,method="rf", ntree=100, mtry=8)
+rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
 
 
 ```
@@ -182,10 +196,11 @@ train model to predict Test (All train)
 ```{r}
 
 # Get the best mtry
-bestmtry_rf<-tuneRF(sj[ , c(3,1,2,5,11,17,7,4)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+bestmtry_rf<-tuneRF(sj[ , head(unique(x$names),6)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
 
 # Train a random forest using that mtry
-rf_reg<-randomForest(y=sj$total_cases,x=sj[ , c(3,1,2,5,11,17,7,4)],importance=T,method="rf", ntree=100, mtry=8)
+rf_reg<-randomForest(y=sj$total_cases,x=sj[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
+
 
 ```
 
@@ -196,6 +211,93 @@ rf_reg<-randomForest(y=sj$total_cases,x=sj[ , c(3,1,2,5,11,17,7,4)],importance=T
 sj_te <- test %>% filter(city == "sj")
 
 
+```
+
+The missing values will be replaced by a forecast
+
+```{r}
+
+sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+```{r}
+
+sj_te$total_cases <- predict(rf_reg, sj_te)
+
+sj_te$city <- NULL
+sj_te$type <- NULL
+
+names(sj_te)
+names(sj_tr)
+
+ggplot(rbind(sj_tr,sj_te), aes(week_start_date,total_cases)) + geom_line()
+
+
+
+```
+
+# Modelling Iquito
+
+Get most relevant variables (Var imp)
+
+```{r}
+
+
+iq$city <- NULL
+iq_tr$city <- NULL
+
+rf_reg<-randomForest(y=iq$total_cases,x=iq[2:23],importance=T,method="rf")
+
+imp <- as.data.frame(varImp(rf_reg))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+x <- imp[order(imp$overall,decreasing = T),]
+
+x$names <- as.character(x$names)
+
+```
+train model 
+
+```{r}
+
+# Get the best mtry
+bestmtry_rf<-tuneRF(iq_tr[ , head(unique(x$names),6)], iq_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+
+# Train a random forest using that mtry
+rf_reg<-randomForest(y=iq_tr$total_cases,x=iq_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
+
+
+```
+
+predict in validation
+
+```{r}
+
+pred_iq_val <- predict(object = rf_reg, iq_val)
+
+postResample(pred_iq_val, iq_val$total_cases)
+
+```
+
+train model to predict Test (All train)
+
+```{r}
+
+# Get the best mtry
+bestmtry_rf<-tuneRF(iq[ , head(unique(x$names),6)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+
+# Train a random forest using that mtry
+rf_reg<-randomForest(y=iq$total_cases,x=iq[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
+
+```
+
+### Make final prediction for Iquito (test)
+
+```{r}
+
+iq_te <- test %>% filter(city == "iq")
 
 
 ```
@@ -204,14 +306,44 @@ The missing values will be replaced by a forecast
 
 ```{r}
 
-test <- cbind(train[ , c("city", "type", "week_start_date")] ,  apply(X = train[, which(sapply(train,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date")] ,  apply(X = iq_te[, which(sapply(iq_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+```{r}
+
+pred_iq_te <- predict(rf_reg, iq_te)
 
 
 ```
 
 
 
-predict(rf_reg, sj_te)
+
+```{r}
+
+sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y"))
+
+sj_prohet_model <- prophet(sj_prophet)
+
+future <- make_future_dataframe(sj_prohet_model, 100, freq = "week")
+
+forecast <- predict(sj_prohet_model, future)
+
+dyplot.prophet(x = sj_prohet_model, fcst = forecast)
+
+```
+
+# Match Prophet and submission
+
+```{r}
+
+cbind(forecast$ds, floor_date(submission_format$weekofyear))
+
+```
+```{r}
+
 
 ```
 
