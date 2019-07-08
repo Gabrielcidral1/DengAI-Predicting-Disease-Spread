@@ -15,7 +15,7 @@ output:
 ## loading packages and data
 
 ```{r}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, MMWRweek)
 
 features_tr <- read_csv("dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -327,9 +327,15 @@ sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y")
 
 sj_prohet_model <- prophet(sj_prophet)
 
-future <- make_future_dataframe(sj_prohet_model, 100, freq = "week")
+future <- make_future_dataframe(sj_prohet_model, 500, freq = "week")
 
 forecast <- predict(sj_prohet_model, future)
+
+forecast$year <- year(forecast$ds)
+
+forecast$weekofyear <- week(forecast$ds)
+
+View(forecast)
 
 dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
@@ -339,10 +345,26 @@ dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
 ```{r}
 
-cbind(forecast$ds, floor_date(submission_format$weekofyear))
+calculate_start_of_week = function(week, year) {
+  date <- ymd(paste(year, 1, 1, sep="-"))
+  week(date) = week
+  return(date)
+}
+
+names(submission_format)
+
+submission_format$day <- calculate_start_of_week(submission_format$weekofyear, year = submission_format$year)
+
+
+forecast$ds <- as.Date(forecast$ds)
+
+left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat")], by = c("year","weekofyear"))
+
+
 
 ```
 ```{r}
+
 
 
 ```
