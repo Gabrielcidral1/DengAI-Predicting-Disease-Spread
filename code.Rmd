@@ -1,0 +1,217 @@
+---
+title: "DengAI-Predicting-Disease-Spread"
+author: "gabriel"
+date: "8/7/2019"
+output: html_document
+---
+
+loading packages and data
+
+```{r}
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest)
+
+features_tr <- read_csv("dengue_features_train.csv", 
+    col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
+
+labels_tr <- read_csv("dengue_labels_train.csv")
+
+features_te <- read_csv("dengue_features_test.csv", 
+    col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
+
+submission_format <- read_csv("submission_format.csv")
+
+features_tr
+
+labels_tr
+
+features_te
+
+submission_format
+
+```
+
+create two dataset, train and test
+
+```{r}
+
+train <- left_join(x = features_tr, y = labels_tr, by = c("year", "weekofyear", "city"))
+
+
+test <- left_join(x = features_te, y = submission_format, by = c("year", "weekofyear", "city"))
+
+train 
+
+test
+
+```
+
+### Inital investigation
+
+```{r}
+summary(train)
+
+summary(test)
+
+```
+
+## Checking distrutions
+
+the plots below confirm that most of the predictors haves similar distributions across train and test
+
+```{r}
+
+train$type <- "train"
+
+test$type <- "test"
+
+all <- rbind(train, test)
+
+for (i in names(all)) {
+x <- ggplot(data = all,aes_string(i,color="type")) + geom_density()
+print(x)
+}
+```
+
+### treat NAs
+
+Plot line with Nas and one with a forecast (Kalman)
+```{r}
+
+ggplot(data = train, aes(week_start_date, ndvi_ne)) + geom_line()
+
+imputeTS::na.kalman(train$ndvi_ne)
+
+ggplot(data = train, aes(x = week_start_date, imputeTS::na.kalman(train$ndvi_ne))) + geom_line()
+
+```
+
+The missing values will be replaced by a forecast
+
+```{r}
+
+sj <-  train %>% filter(city == "sj") 
+
+
+train <- cbind(train[ , c("city", "type", "week_start_date")] ,  apply(X = train[, which(sapply(train,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+
+
+train a dummy model with both cities together
+
+```{r}
+
+train$type <- NULL
+
+# fit <- train(total_cases ~.,
+#       data= train,
+#       method = "rf")
+
+```
+
+## split the cities to train models
+
+San Juan
+```{r}
+
+
+training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
+
+sj_tr <- sj[training_size, ]
+
+sj_val <- sj[-training_size, ]
+
+
+```
+
+Iquito
+
+```{r}
+iq <- train %>% filter(city == "iq")
+
+training_size <- createDataPartition(iq$total_cases, p = 0.7, list = F)  
+
+iq_tr <- iq[training_size, ]
+
+iq_val <- iq[-training_size, ]
+
+```
+
+##Modelling San Juan
+
+Get most relevant variables (Var imp)
+
+```{r}
+sj$city <- NULL
+sj_tr$city <- NULL
+rf_reg<-randomForest(y=sj$total_cases,x=sj[1:23],importance=T,method="rf")
+
+imp <- as.data.frame(varImp(rf_reg))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+imp[order(imp$overall,decreasing = T),]
+
+```
+train model 
+
+```{r}
+
+# Get the best mtry
+bestmtry_rf<-tuneRF(sj_tr[ , c(3,1,2,5,11,17,7,4)], sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+
+# Train a random forest using that mtry
+rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , c(3,1,2,5,11,17,7,4)],importance=T,method="rf", ntree=100, mtry=8)
+
+
+```
+
+predict in validation
+
+```{r}
+
+pred_sj_val <- predict(object = rf_reg, sj_val)
+
+postResample(pred_sj_val, sj_val$total_cases)
+
+```
+
+train model to predict Test (All train)
+
+```{r}
+
+# Get the best mtry
+bestmtry_rf<-tuneRF(sj[ , c(3,1,2,5,11,17,7,4)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+
+# Train a random forest using that mtry
+rf_reg<-randomForest(y=sj$total_cases,x=sj[ , c(3,1,2,5,11,17,7,4)],importance=T,method="rf", ntree=100, mtry=8)
+
+```
+
+### Make final prediction for San Juan (test)
+
+```{r}
+
+sj_te <- test %>% filter(city == "sj")
+
+
+
+
+```
+
+The missing values will be replaced by a forecast
+
+```{r}
+
+test <- cbind(train[ , c("city", "type", "week_start_date")] ,  apply(X = train[, which(sapply(train,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+
+
+predict(rf_reg, sj_te)
+
+```
+
