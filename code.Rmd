@@ -103,9 +103,11 @@ San Juan
 ```{r}
 sj <-  train %>% filter(city == "sj") 
 
-sj$total_cases[sj$total_cases > 100] <- 100 
+#sj$total_cases[sj$total_cases > 100] <- 100 # exclude outliers
 
 training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
+
+
 
 sj_tr <- sj[training_size, ]
 
@@ -119,9 +121,7 @@ Iquito
 ```{r}
 iq <- train %>% filter(city == "iq")
 
-iq$total_cases[iq$total_cases > 30] <- 30
-
-
+#iq$total_cases[iq$total_cases > 30] <- 30
 
 training_size <- createDataPartition(iq$total_cases, p = 0.7, list = F)  
 
@@ -132,8 +132,6 @@ iq_val <- iq[-training_size, ]
 ```
 
 # Modelling San Juan
-
-
 
 
 Get most relevant variables with all data (Var imp)
@@ -162,19 +160,14 @@ train model
 ```{r}
 
 
-
 sj_tr$city <- NULL
 
 sj_tr$type <- NULL
 
-# Get the best mtry
+# Get the best mtry and apply model 
 names(sj_tr)
 
-bestmtry_rf <- tuneRF(x = sj_tr[ , head(unique(x$names),6)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
-
-# Train a random forest using that mtry
-rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=8)
-
+rf_reg <- tuneRF(x = sj_tr[ , head(unique(x$names),15)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T) 
 
 ```
 
@@ -194,11 +187,10 @@ train model to predict Test (All train)
 
 ```{r}
 
-# Get the best mtry
-bestmtry_rf<-tuneRF(sj[ , head(unique(x$names),6)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+# Get the best mtry Train a random forest using that mtry
 
-# Train a random forest using that mtry
-rf_reg<-randomForest(y=sj$total_cases,x=sj[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
+rf_reg <- tuneRF(sj[ , head(unique(x$names),15)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+
 
 
 ```
@@ -258,10 +250,7 @@ train model
 ```{r}
 
 # Get the best mtry
-bestmtry_rf<-tuneRF(iq_tr[ , head(unique(x$names),6)], iq_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
-
-# Train a random forest using that mtry
-rf_reg<-randomForest(y=iq_tr$total_cases,x=iq_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=4)
+rf_reg <- tuneRF(iq_tr[ , head(unique(x$names),15)], iq_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 
 ```
@@ -281,10 +270,8 @@ train model to predict Test (All train)
 ```{r}
 
 # Get the best mtry
-bestmtry_rf<-tuneRF(iq[ , head(unique(x$names),6)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+rf_reg<-tuneRF(iq[ , head(unique(x$names),15)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
-# Train a random forest using that mtry
-rf_reg<-randomForest(y=iq$total_cases,x=iq[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
 
 ```
 
@@ -330,9 +317,9 @@ write.csv(submission_rf, "submission_rf.csv", quote = F, row.names = F)
 
 ```
 
+# Prophet
 
-
-# Prophet San Juan
+## Prophet San Juan
 
 
 ```{r}
