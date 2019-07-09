@@ -107,9 +107,7 @@ sj <-  train %>% filter(city == "sj")
 
 training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
 
-
-
-sj_tr <- sj[training_size, ]
+sj_tr <- head(sj, 657) # train as 70% of the data (not using CreateDataPartition because its time related)
 
 sj_val <- sj[-training_size, ]
 
