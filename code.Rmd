@@ -14,8 +14,8 @@ output:
 
 ## loading packages and data
 
-```{r}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, MMWRweek)
+```{r, warning=F}
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate)
 
 features_tr <- read_csv("dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -27,15 +27,6 @@ features_te <- read_csv("dengue_features_test.csv",
 
 submission_format <- read_csv("submission_format.csv")
 
-features_tr
-
-labels_tr
-
-features_te
-
-submission_format
-
-
 ```
 
 create two dataset, train and test
@@ -46,10 +37,6 @@ train <- left_join(x = features_tr, y = labels_tr, by = c("year", "weekofyear", 
 
 
 test <- left_join(x = features_te, y = submission_format, by = c("year", "weekofyear", "city"))
-
-train 
-
-test
 
 ```
 
@@ -191,11 +178,13 @@ rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],imp
 
 ```
 
-predict in validation
+### Predict in validation
 
 ```{r}
 
-pred_sj_val <- predict(object = rf_reg, sj_val)
+names(sj_val)
+
+pred_sj_val <- predict(rf_reg, sj_val)
 
 postResample(pred_sj_val, sj_val$total_cases)
 
