@@ -15,7 +15,7 @@ output:
 ## loading packages and data
 
 ```{r, warning=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, corrplot)
 
 features_tr <- read_csv("dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -49,11 +49,11 @@ summary(test)
 
 ```
 
-## Checking distrutions
+## Checking distributions
 
 the plots below confirm that most of the predictors haves similar distributions across train and test
 
-```{r}
+```{r, warning=F}
 
 train$type <- "train"
 
@@ -69,47 +69,136 @@ print(x)
 
 ### treat NAs
 
-Plot line with Nas and one with a forecast (Kalman)
-```{r}
 
-ggplot(data = train, aes(week_start_date, ndvi_ne)) + geom_line()
-
-imputeTS::na.kalman(train$ndvi_ne)
-
-ggplot(data = train, aes(x = week_start_date, imputeTS::na.kalman(train$ndvi_ne))) + geom_line()
-
-```
+## Split data by city 
 
 The missing values will be replaced by a forecast
 
 ```{r}
 
+sj <-  train %>% filter(city == "sj") 
 
-train <- cbind(train[ , c("city", "type", "week_start_date")] ,  apply(X = train[, which(sapply(train,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
+
+ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
+
+
+sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 
 ```
+
 
 ```{r}
-ggplot(filter(all, city=="sj"), aes(week_start_date, y = total_cases)) + geom_line()
-ggplot(filter(all, city=="iq"), aes(week_start_date, y = total_cases)) + geom_line()
+
+iq <- train %>% filter(city == "iq")
+
+ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
+
+ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_temp_rng_c))) + geom_line()
+
+
+iq <- cbind(iq[ , c("city", "type", "week_start_date")] ,  apply(X = iq[, which(sapply(iq,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+total cases across cities
+
+```{r}
+ggplot(sj, aes(week_start_date, y = total_cases)) + geom_line()
+ggplot(iq, aes(week_start_date, y = total_cases)) + geom_line()
+
+```
+
+## Correlation analysis (with lags)
+
+
+### melt data to plot variables against total_cases
+
+```{r}
+m <- reshape::melt(data = sj, id.vars = c("city", "type", "week_start_date", "year", "weekofyear")) # create a melted dataframe
+
+ggplot(filter(m, variable %in% c("ndvi_ne", "total_cases")), aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+
+m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+
+
+```
+
+### Pairwise correlation
+
+### function for pairwise correlation
+```{r}
+pairwiseCor <- function(dataframe){
+  pairs <- combn(names(dataframe), 2, simplify=FALSE)
+  df <- data.frame(Vairable1=rep(0,length(pairs)), Variable2=rep(0,length(pairs)), 
+                   AbsCor=rep(0,length(pairs)), Cor=rep(0,length(pairs)))
+  for(i in 1:length(pairs)){
+    df[i,1] <- pairs[[i]][1]
+    df[i,2] <- pairs[[i]][2]
+    df[i,3] <- round(abs(cor(dataframe[,pairs[[i]][1]], dataframe[,pairs[[i]][2]])),4)
+    df[i,4] <- round(cor(dataframe[,pairs[[i]][1]], dataframe[,pairs[[i]][2]]),4)
+  }
+  pairwiseCorDF <- df
+  pairwiseCorDF <- pairwiseCorDF[order(pairwiseCorDF$AbsCor, decreasing=TRUE),]
+  row.names(pairwiseCorDF) <- 1:length(pairs)
+  pairwiseCorDF <<- pairwiseCorDF
+  pairwiseCorDF
+}
+```
+
+
+```{r}
+
+
+corr_all <- cor(sj[, which(sapply(sj,is.numeric))])
+
+pairwise <- pairwiseCor(sj[, which(sapply(sj,is.numeric))])
+
+pairwise_total_cases <- filter(pairwise, Variable2 == "total_cases")
+
+pairwise_total_cases
+
+findCorrelation(x = corr_all, names = T)
+
+pairwise
+
+```
+
+### Compare correlation by lags
+
+```{r}
+compare_cor <- c()
+
+for(i in 1:20) {
+
+a <- sj %>% select(station_avg_temp_c,total_cases)  
+    
+b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)) , use = "complete.obs")
+
+compare_cor <- rbind(compare_cor, b[1,])
+
+}
+
+
+which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
+
 
 ```
 
 
-## split the cities to train models
+## split in train and validation 
 
 San Juan
 ```{r}
-sj <-  train %>% filter(city == "sj") 
+
 
 #sj$total_cases[sj$total_cases > 100] <- 100 # exclude outliers
 
-training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
-
 sj_tr <- head(sj, 657) # train as 70% of the data (not using CreateDataPartition because its time related)
 
-sj_val <- sj[-training_size, ]
+sj_val <- tail(sj, 279) # 30%
 
 
 ```
@@ -117,20 +206,16 @@ sj_val <- sj[-training_size, ]
 Iquito
 
 ```{r}
-iq <- train %>% filter(city == "iq")
+
 
 #iq$total_cases[iq$total_cases > 30] <- 30
 
-training_size <- createDataPartition(iq$total_cases, p = 0.7, list = F)  
+iq_tr <- head(iq, 366)
 
-iq_tr <- iq[training_size, ]
-
-iq_val <- iq[-training_size, ]
-
+iq_val <- tail(iq,154)
 ```
 
 # Modelling San Juan
-
 
 Get most relevant variables with all data (Var imp)
 
@@ -165,7 +250,28 @@ sj_tr$type <- NULL
 # Get the best mtry and apply model 
 names(sj_tr)
 
-rf_reg <- tuneRF(x = sj_tr[ , head(unique(x$names),15)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T) 
+compare <- c()
+
+
+for(i in c(2:22)) {
+
+rf_reg <- tuneRF(x = sj_tr[ , head(unique(x$names),i)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T) 
+
+pred_sj_val <- predict(rf_reg, sj_val)
+
+res <- postResample(pred_sj_val, sj_val$total_cases)
+
+compare <- cbind(compare ,res)
+
+}
+
+
+colnames(compare) <- paste("X", c(2:22))
+
+compare <- melt(compare)
+
+ggplot(compare, aes(x = Var2, y = value)) + geom_col() +  facet_grid(Var1~., scales = "free")
+
 
 ```
 
@@ -185,10 +291,20 @@ train model to predict Test (All train)
 
 ```{r}
 
-# Get the best mtry Train a random forest using that mtry
+# Exclude irrelevant features 
+#sj <- sj[ , -which(names(sj) %in% c("ndvi_nw", "reanalysis_tdtr_k","precipitation_amt_mm" , "reanalysis_sat_precip_amt_mm"	,"ndvi_ne"	,"station_precip_mm"	,"station_diur_temp_rng_c", "ndvi_sw", "ndvi_se", "reanalysis_dew_point_temp_k", "city", "type"))]
 
-rf_reg <- tuneRF(sj[ , head(unique(x$names),15)], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, plot=T) 
+# apply lag to certain features
 
+sj$reanalysis_specific_humidity_g_per_kg <- lag(sj$reanalysis_specific_humidity_g_per_kg, 8) 
+sj$station_avg_temp_c <- lag(sj$station_avg_temp_c, 10)
+
+
+# Get the best mtry train a random forest using that mtry
+
+sj <- sj[11:936 , 3:25] # to exclude NAs
+
+rf_reg <- tuneRF(x = sj[,1:13], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 
 ```
@@ -199,7 +315,6 @@ rf_reg <- tuneRF(sj[ , head(unique(x$names),15)], sj$total_cases, ntreeTry=100,s
 
 sj_te <- test %>% filter(city == "sj")
 
-
 ```
 
 The missing values will be replaced by a forecast
@@ -208,17 +323,17 @@ The missing values will be replaced by a forecast
 
 sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
-
 ```
 
 ```{r}
 
-sj_te$total_cases <- predict(rf_reg, sj_te)
+sj_te$total_cases <- predict(rf_reg , sj_te)
 
+class(rf_reg)
+
+?predict()
 names(sj_te)
 names(sj_tr)
-
-#ggplot(rbind(sj_tr,sj_te), aes(week_start_date,total_cases)) + geom_line()
 
 
 ```
@@ -228,8 +343,6 @@ names(sj_tr)
 Get most relevant variables (Var imp)
 
 ```{r}
-
-
 
 iq_tr$city <- NULL
 
@@ -260,6 +373,7 @@ predict in validation
 pred_iq_val <- predict(object = rf_reg, iq_val)
 
 postResample(pred_iq_val, iq_val$total_cases)
+
 
 ```
 
@@ -352,7 +466,6 @@ forecast$city <- "sj"
 forecast_sj <- forecast
 
 submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
-
 
 
 ```
