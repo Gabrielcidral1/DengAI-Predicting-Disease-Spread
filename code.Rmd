@@ -31,7 +31,7 @@ submission_format <- read_csv("submission_format.csv")
 
 create two dataset, train and test
 
-```{r}
+```{r, warning=F}
 
 train <- left_join(x = features_tr, y = labels_tr, by = c("year", "weekofyear", "city"))
 
@@ -42,14 +42,14 @@ test <- left_join(x = features_te, y = submission_format, by = c("year", "weekof
 
 ### Inital investigation
 
-```{r}
-summary(train)
+```{r, warning=F}
+#summary(train)
 
-summary(test)
+#summary(test)
 
 ```
 
-## Checking distributions
+### Checking distributions
 
 the plots below confirm that most of the predictors haves similar distributions across train and test
 
@@ -72,9 +72,7 @@ print(x)
 
 ## Split data by city 
 
-The missing values will be replaced by a forecast
-
-```{r}
+```{r, warning=F}
 
 sj <-  train %>% filter(city == "sj") 
 
@@ -83,10 +81,18 @@ ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
 ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
 
 
+```
+
+
+The missing values will be replaced by a forecast
+
+```{r}
+
 sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 
 ```
+
 
 
 ```{r}
@@ -129,7 +135,7 @@ m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(a
 ### Pairwise correlation
 
 ### function for pairwise correlation
-```{r}
+```{r, warning=F}
 pairwiseCor <- function(dataframe){
   pairs <- combn(names(dataframe), 2, simplify=FALSE)
   df <- data.frame(Vairable1=rep(0,length(pairs)), Variable2=rep(0,length(pairs)), 
@@ -149,7 +155,7 @@ pairwiseCor <- function(dataframe){
 ```
 
 
-```{r}
+```{r, warning=F}
 
 
 corr_all <- cor(sj[, which(sapply(sj,is.numeric))])
@@ -162,13 +168,13 @@ pairwise_total_cases
 
 findCorrelation(x = corr_all, names = T)
 
-pairwise
+head(pairwise)
 
 ```
 
 ### Compare correlation by lags
 
-```{r}
+```{r, warning=F}
 compare_cor <- c()
 
 for(i in 1:20) {
@@ -191,7 +197,7 @@ which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 ## split in train and validation 
 
 San Juan
-```{r}
+```{r, warning=F}
 
 
 #sj$total_cases[sj$total_cases > 100] <- 100 # exclude outliers
@@ -219,9 +225,8 @@ iq_val <- tail(iq,154)
 
 Get most relevant variables with all data (Var imp)
 
-```{r}
+```{r, warning=F}
 
-names(sj)
 sj$city <- NULL
 
 
@@ -240,7 +245,7 @@ imp[order(imp$overall,decreasing = T),]
 ```
 train model 
 
-```{r}
+```{r, warning=F}
 
 
 sj_tr$city <- NULL
@@ -248,14 +253,13 @@ sj_tr$city <- NULL
 sj_tr$type <- NULL
 
 # Get the best mtry and apply model 
-names(sj_tr)
 
 compare <- c()
 
 
 for(i in c(2:22)) {
 
-rf_reg <- tuneRF(x = sj_tr[ , head(unique(x$names),i)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T) 
+rf_reg <- tuneRF(x = sj_tr[ , head(unique(x$names),i)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T, plot = F) 
 
 pred_sj_val <- predict(rf_reg, sj_val)
 
@@ -277,9 +281,7 @@ ggplot(compare, aes(x = Var2, y = value)) + geom_col() +  facet_grid(Var1~., sca
 
 ### Predict in validation
 
-```{r}
-
-names(sj_val)
+```{r, warning=F}
 
 pred_sj_val <- predict(rf_reg, sj_val)
 
@@ -289,7 +291,7 @@ postResample(pred_sj_val, sj_val$total_cases)
 
 train model to predict Test (All train)
 
-```{r}
+```{r, warning=F}
 
 # Exclude irrelevant features 
 #sj <- sj[ , -which(names(sj) %in% c("ndvi_nw", "reanalysis_tdtr_k","precipitation_amt_mm" , "reanalysis_sat_precip_amt_mm"	,"ndvi_ne"	,"station_precip_mm"	,"station_diur_temp_rng_c", "ndvi_sw", "ndvi_se", "reanalysis_dew_point_temp_k", "city", "type"))]
@@ -302,7 +304,7 @@ sj$station_avg_temp_c <- lag(sj$station_avg_temp_c, 10)
 
 # Get the best mtry train a random forest using that mtry
 
-sj <- sj[11:936 , 3:25] # to exclude NAs
+sj <- sj[11:936 , 2:25] # to exclude NAs
 
 rf_reg <- tuneRF(x = sj[,1:13], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
@@ -311,7 +313,7 @@ rf_reg <- tuneRF(x = sj[,1:13], sj$total_cases, ntreeTry=100,stepFactor=2,improv
 
 ### Make final prediction for San Juan (test)
 
-```{r}
+```{r, warning=F}
 
 sj_te <- test %>% filter(city == "sj")
 
@@ -319,21 +321,17 @@ sj_te <- test %>% filter(city == "sj")
 
 The missing values will be replaced by a forecast
 
-```{r}
+```{r, warning=F}
 
 sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 ```
 
-```{r}
+### Predict
+
+```{r, warning=F}
 
 sj_te$total_cases <- predict(rf_reg , sj_te)
-
-class(rf_reg)
-
-?predict()
-names(sj_te)
-names(sj_tr)
 
 
 ```
@@ -342,7 +340,7 @@ names(sj_tr)
 
 Get most relevant variables (Var imp)
 
-```{r}
+```{r, warning=F}
 
 iq_tr$city <- NULL
 
@@ -358,7 +356,7 @@ x$names <- as.character(x$names)
 ```
 train model 
 
-```{r}
+```{r, warning=F}
 
 # Get the best mtry
 rf_reg <- tuneRF(iq_tr[ , head(unique(x$names),15)], iq_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
@@ -368,7 +366,7 @@ rf_reg <- tuneRF(iq_tr[ , head(unique(x$names),15)], iq_tr$total_cases, ntreeTry
 
 predict in validation
 
-```{r}
+```{r, warning=F}
 
 pred_iq_val <- predict(object = rf_reg, iq_val)
 
@@ -379,7 +377,7 @@ postResample(pred_iq_val, iq_val$total_cases)
 
 train model to predict Test (All train)
 
-```{r}
+```{r, warning=F}
 
 # Get the best mtry
 rf_reg<-tuneRF(iq[ , head(unique(x$names),15)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
@@ -397,14 +395,14 @@ iq_te <- test %>% filter(city == "iq")
 
 The missing values will be replaced by a forecast
 
-```{r}
+```{r, warning=F}
 
 iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date")] ,  apply(X = iq_te[, which(sapply(iq_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 
 ```
 
-```{r}
+```{r, warning=F}
 
 iq_te$total_cases <- predict(rf_reg, iq_te)
 
@@ -412,7 +410,7 @@ iq_te$total_cases <- predict(rf_reg, iq_te)
 
 # Final Submission using RF
 
-```{r}
+```{r, warning=F}
 names(iq_te)
 
 rf_final_df <- rbind(iq_te, sj_te)
@@ -434,7 +432,7 @@ write.csv(submission_rf, "submission_rf.csv", quote = F, row.names = F)
 ## Prophet San Juan
 
 
-```{r}
+```{r, warning=F}
 
 sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y"))
 
@@ -449,14 +447,13 @@ forecast$year <- year(forecast$ds)
 forecast$weekofyear <- week(forecast$ds)
 
 
-
 dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
 ```
 
 ### Match Prophet and submission
 
-```{r}
+```{r, warning=F}
 
 
 forecast$ds <- as.Date(forecast$ds)
@@ -474,7 +471,7 @@ submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","
 
 
 
-```{r}
+```{r, warning=F}
 
 iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y"))
 
@@ -495,7 +492,7 @@ dyplot.prophet(x = iq_prohet_model, fcst = forecast)
 
 ### Match Prophet and submission
 
-```{r}
+```{r, warning=F}
 
 
 forecast$ds <- as.Date(forecast$ds)
@@ -513,7 +510,7 @@ submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 wee
 
 ### Change negative values to 0
 
-```{r}
+```{r, warning=F}
 
 submission$yhat[submission$yhat < 0 ] <- 0
 
@@ -532,7 +529,7 @@ write.csv(submission, "submission.csv", quote = F, row.names = F)
 
 ## Final final submission with the mean of both previous
 
-```{r}
+```{r, warning=F}
 
 submission_mean <- submission 
 
