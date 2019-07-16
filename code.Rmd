@@ -14,7 +14,7 @@ output:
 
 ## loading packages and data
 
-```{r, warning=F}
+```{r, warning=F, message=F}
 pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, corrplot)
 
 features_tr <- read_csv("dengue_features_train.csv", 
@@ -75,6 +75,7 @@ print(x)
 ```{r, warning=F}
 
 sj <-  train %>% filter(city == "sj") 
+
 
 ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
 
@@ -181,7 +182,7 @@ for(i in 1:20) {
 
 a <- sj %>% select(station_avg_temp_c,total_cases)  
     
-b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)) , use = "complete.obs")
+b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)), method = "spearman" , use = "complete.obs")
 
 compare_cor <- rbind(compare_cor, b[1,])
 
@@ -205,8 +206,6 @@ San Juan
 ```{r, warning=F}
 
 
-#sj$total_cases[sj$total_cases > 100] <- 100 # exclude outliers
-
 sj_tr <- head(sj, 657) # train as 70% of the data (not using CreateDataPartition because its time related)
 
 sj_val <- tail(sj, 279) # 30%
@@ -222,6 +221,7 @@ Get most relevant variables with all data (Var imp)
 ```{r, warning=F}
 
 sj$city <- NULL
+
 
 
 rf_reg <- randomForest(y=sj$total_cases[-936],x=sj[ -936 , 2:23],importance=T,method="rf") # starting in 2 to not use the variable "type"
@@ -240,8 +240,6 @@ imp[order(imp$overall,decreasing = T),]
 train model 
 
 ```{r, warning=F}
-
-
 sj_tr$city <- NULL
 
 sj_tr$type <- NULL
@@ -250,29 +248,39 @@ sj_tr$type <- NULL
 
 compare <- c()
 
-b <- c(3:ncol(sj_tr))
+b <- c(13:ncol(sj_tr)) # change this number to select different number of variables to try
 
-for(i in b) {
+# for(i in b) {
+# 
+# rf_reg <- randomForest::tuneRF(x = sj_tr[ , head(unique(x$names),i)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T, plot = F) 
+# 
+#   
+# pred_sj_val <- predict(rf_reg, sj_val)
+# 
+# res <- postResample(pred_sj_val, sj_val$total_cases)
+# 
+# compare <- cbind(compare ,res)
+# 
+# }
+
+sj_val$city <- NULL
+sj_val$type <- NULL
+
+#colnames(compare) <- paste("X", b)
+
+#compare <- melt(compare)
+
+#ggplot(compare, aes(x = Var2, y = value)) + geom_col() +  facet_grid(Var1~., scales = "free")
+```
+
+
+```{r, warning=F}
+
+preprocessparams <- preProcess(x = sj_tr[-which(colnames(sj_tr)=="total_cases")],method = c("center","scale","pca","BoxCox"))
+
+sj_tr <- predict(preprocessparams,sj_tr)
 
 rf_reg <- randomForest::tuneRF(x = sj_tr[ , head(unique(x$names),i)], y = sj_tr$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=F, doBest = T, plot = F) 
-
-
-pred_sj_val <- predict(rf_reg, sj_val)
-
-res <- postResample(pred_sj_val, sj_val$total_cases)
-
-compare <- cbind(compare ,res)
-
-}
-
-sum(is.na(sj_val))
-
-colnames(compare) <- paste("X", b)
-
-compare <- melt(compare)
-
-ggplot(compare, aes(x = Var2, y = value)) + geom_col() +  facet_grid(Var1~., scales = "free")
-
 
 ```
 
@@ -280,15 +288,20 @@ ggplot(compare, aes(x = Var2, y = value)) + geom_col() +  facet_grid(Var1~., sca
 
 ```{r, warning=F}
 
+sj_val <- predict(preprocessparams,sj_val)
+
 pred_sj_val <- predict(rf_reg, sj_val)
 
-postResample(pred_sj_val, sj_val$total_cases)
+n <- as.data.frame(cbind(pred_sj_val, sj_val$total_cases))
+
+postResample(n$pred_sj_val_, n$V2)
+
 
 ```
 
 train model to predict Test (All train)
 
-```{r, warning=F}
+```{r, warning=F, message=F}
 
 # Exclude irrelevant features 
 #sj <- sj[ , -which(names(sj) %in% c("ndvi_nw", "reanalysis_tdtr_k","precipitation_amt_mm" , "reanalysis_sat_precip_amt_mm"	,"ndvi_ne"	,"station_precip_mm"	,"station_diur_temp_rng_c", "ndvi_sw", "ndvi_se", "reanalysis_dew_point_temp_k", "city", "type"))]
@@ -301,9 +314,9 @@ train model to predict Test (All train)
 
 # Get the best mtry train a random forest using that mtry
 
-sj <- sj[, 2:ncol(sj)] # to exclude NAs
+sj <- predict(preprocessparams, sj)
 
-rf_reg <- tuneRF(x = sj[,1:13], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
+rf_reg <- tuneRF(x = sj[ , -which(names(sj) == "total_cases")], sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 
 ```
@@ -365,6 +378,7 @@ x <- imp[order(imp$overall,decreasing = T),]
 x$names <- as.character(x$names)
 
 ```
+
 train model 
 
 ```{r, warning=F}
@@ -391,7 +405,7 @@ train model to predict Test (All train)
 ```{r, warning=F}
 
 # Get the best mtry
-rf_reg<-tuneRF(iq[ , head(unique(x$names),15)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
+rf_reg <- tuneRF(iq[ , head(unique(x$names),15)], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 
 ```
@@ -430,6 +444,9 @@ submission_format$total_cases <- NULL
 submission_rf <- left_join(submission_format, y = rf_final_df, by = c("year","weekofyear", "city"))
 
 submission_rf <- submission_rf %>% select(city, year, weekofyear, total_cases)
+
+# match 
+
 
 submission_rf$total_cases <- base::round(submission_rf$total_cases,0)
 
@@ -552,3 +569,8 @@ write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F)
   
 ```
 
+<!-- begin wwww.htmlcommentbox.com -->
+<div id="HCB_comment_box"><a href="http://www.htmlcommentbox.com">Comment Box</a> is loading comments...</div>
+<link rel="stylesheet" type="text/css" href="https://www.htmlcommentbox.com/static/skins/bootstrap/twitter-bootstrap.css?v=0" />
+<script type="text/javascript" id="hcb"> /*<!--*/ if(!window.hcb_user){hcb_user={};} (function(){var s=document.createElement("script"), l=hcb_user.PAGE || (""+window.location).replace(/'/g,"%27"), h="https://www.htmlcommentbox.com";s.setAttribute("type","text/javascript");s.setAttribute("src", h+"/jread?page="+encodeURIComponent(l).replace("+","%2B")+"&mod=%241%24wq1rdBcg%24QU9x23GQcVLZySCO.uLVx."+"&opts=16862&num=10&ts=1563265318041");if (typeof s!="undefined") document.getElementsByTagName("head")[0].appendChild(s);})(); /*-->*/ </script>
+<!-- end www.htmlcommentbox.com -->
