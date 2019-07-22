@@ -159,7 +159,15 @@ pairwiseCor <- function(dataframe){
 ```{r, warning=F}
 
 
+<<<<<<< HEAD
 corr_all <- cor(sj[, which(sapply(sj,is.numeric))])
+=======
+pca <- preProcess(sj[1:25], "pca")
+
+sj <- predict(pca, sj)
+
+training_size <- createDataPartition(sj$total_cases, p = 0.7, list = F)  
+>>>>>>> master
 
 pairwise <- pairwiseCor(sj[, which(sapply(sj,is.numeric))])
 
@@ -190,6 +198,9 @@ compare_cor <- rbind(compare_cor, b[1,])
 
 which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
+pca <- preProcess(iq[1:25], "pca")
+
+iq <- predict(pca,iq)
 
 sj <- sj %>% mutate(total_cases = lead(total_cases, 1), week_start_date = lead(week_start_date, 1) , weekofyear = lead(weekofyear, 1), year = lead(year, 1))
 
@@ -223,8 +234,12 @@ Get most relevant variables with all data (Var imp)
 sj$city <- NULL
 
 
+<<<<<<< HEAD
 
 rf_reg <- randomForest(y=sj$total_cases[-936],x=sj[ -936 , 2:23],importance=T,method="rf") # starting in 2 to not use the variable "type"
+=======
+rf_reg <- randomForest(y=sj$total_cases,x=sj[,2:14],importance=T,method="rf") # starting in 2 to not use the variable "type"
+>>>>>>> master
 
 imp <- as.data.frame(varImp(rf_reg))
 imp <- data.frame(overall = imp$Overall,
@@ -266,7 +281,12 @@ b <- c(13:ncol(sj_tr)) # change this number to select different number of variab
 sj_val$city <- NULL
 sj_val$type <- NULL
 
+<<<<<<< HEAD
 #colnames(compare) <- paste("X", b)
+=======
+# Train a random forest using that mtry
+rf_reg<-randomForest(y=sj_tr$total_cases,x=sj_tr[ , head(unique(x$names),6)],importance=T,method="rf", ntree=100, mtry=6)
+>>>>>>> master
 
 #compare <- melt(compare)
 
