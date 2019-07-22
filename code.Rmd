@@ -166,7 +166,7 @@ pairwise_total_cases <- filter(pairwise, Variable2 == "total_cases")
 
 pairwise_total_cases
 
-findCorrelation(x = corr_all, names = T)
+#findCorrelation(x = corr_all, names = T)
 
 head(pairwise)
 
