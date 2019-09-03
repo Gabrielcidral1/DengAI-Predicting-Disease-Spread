@@ -16,7 +16,7 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, corrplot, quantreg, iClick)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, data.table, lubridate, corrplot, quantreg, iClick)
 
 features_tr <- read_csv("./input/dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -107,6 +107,8 @@ The missing values will be replaced by a forecast
 ```{r}
 
 sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
 
 #write.csv(sj, "sj.csv")
 
@@ -392,6 +394,7 @@ submission_rf$total_cases <- base::round(submission_rf$total_cases,0) # Round
 
 ggplot(submission_rf, aes(week_start_date, total_cases)) + geom_line() + facet_wrap(city~.)
 
+ggplot(rf_final_df, aes(week_start_date, total_cases)) + geom_line() + facet_wrap(city~.)
 
 ```
 

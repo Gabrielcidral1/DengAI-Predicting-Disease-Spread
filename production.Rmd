@@ -1,0 +1,316 @@
+---
+title: "Production"
+author: "gabriel"
+date: "2/8/2019"
+output:
+  rmdformats::readthedown:
+    thumbnails: true
+    lightbox: true
+    toc_depth: 3
+    gallery: true
+    highlight: tango
+
+---
+
+## loading packages and data
+
+```{r, warning=F, message=F}
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, data.table, lubridate, corrplot, quantreg, iClick, h2o)
+
+features_tr <- read_csv("./input/dengue_features_train.csv", 
+    col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
+
+labels_tr <- read_csv("./input/dengue_labels_train.csv")
+
+features_te <- read_csv("./input/dengue_features_test.csv", 
+    col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
+
+submission_format <- read_csv("./input/submission_format.csv")
+
+
+options(scipen=999)
+
+
+
+```
+
+create two dataset, train and test
+
+```{r, warning=F}
+
+train <- left_join(x = features_tr, y = labels_tr, by = c("year", "weekofyear", "city"))
+
+test <- left_join(x = features_te, y = submission_format, by = c("year", "weekofyear", "city"))
+
+train$type <- "train"
+
+test$type <- "test"
+
+all <- rbind(train, test)
+
+all %>% group_by(city,year, week_start_date) %>%  mutate(avg_temp = mean(reanalysis_avg_temp_k, reanalysis_air_temp_k, na.rm = T, trim = 0), avg_precip = mean(station_precip_mm, precipitation_amt_mm, na.rm = T, trim = 0),  station_avg_temp_c = NULL, reanalysis_avg_temp_k = NULL, reanalysis_air_temp_k = NULL, station_precip_mm = NULL, precipitation_amt_mm = NULL) # Create avg of tempearature and preciptation
+
+
+```
+
+
+```{r, warning=F}
+
+train$type <- "train"
+
+test$type <- "test"
+
+all <- rbind(train, test)
+
+```
+
+## Split data by city 
+
+```{r, warning=F}
+
+sj <-  all %>% filter(city == "sj" | type == "train") 
+
+```
+
+
+The missing values will be replaced by a forecast
+
+```{r}
+
+sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+```
+
+
+Iquitos
+
+```{r}
+
+iq <- all %>% filter(city == "iq" | type == "train")
+
+iq <- cbind(iq[ , c("city", "type", "week_start_date")] ,  apply(X = iq[, which(sapply(iq,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+```
+
+
+# Modelling San Juan
+
+
+```{r, warning=F}
+
+sj$city <- NULL
+
+
+sj$weekofyear <- as.character(sj$weekofyear) 
+
+```
+
+train model to predict Test (All train)
+
+```{r, warning=F, message=F, echo=T}
+
+
+# Get the best mtry train a random forest using that mtry
+
+sj$year <- as.character(sj$year)
+
+# preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale"))
+# 
+# sj <- predict(preprocessparams, sj)
+
+sj$type <- NULL
+#sj$week_start_date <- NULL
+
+
+```
+
+```{r}
+
+h2o.init()
+
+#data to h2o cluster
+train.h2o <- as.h2o(sj)
+
+x.indep <- which(names(train.h2o) != "total_cases")
+
+y.dep <- which(names(train.h2o) == "total_cases")  
+
+deep_learn <- h2o.glm(y=y.dep, x=x.indep, training_frame = train.h2o)
+
+h2o.performance(deep_learn)
+
+
+```
+
+
+### Make final prediction for San Juan (test)
+
+```{r, warning=F}
+
+sj_te <- all %>% filter(city == "sj" & type == "test")
+
+sj_te$year <- as.character(sj_te$year)
+
+
+```
+
+The missing values will be replaced by a forecast
+
+```{r, warning=F}
+
+sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date","year")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+```
+
+### Apply parameters and predict
+
+```{r, warning=F}
+
+
+test.h2o <- as.h2o(sj_te)
+
+predict.deep_learn <- as.data.frame(h2o.predict(deep_learn, test.h2o))
+
+sj_te$total_cases <- predict.deep_learn$predict
+
+```
+
+# Modelling Iquito
+
+Iquito
+
+```{r}
+
+iq$weekofyear <- as.character(iq$weekofyear) 
+
+```
+
+
+train model to predict Test (All train)
+
+```{r, warning=F, echo=F}
+
+
+iq$city <- NULL
+
+iq$type <- NULL
+
+iq$year <- as.character(iq$year)
+
+
+#data to h2o cluster
+train.h2o <- as.h2o(iq)
+
+x.indep <- which(names(train.h2o) != "total_cases")
+
+y.dep <- which(names(train.h2o) == "total_cases")  
+
+deep_learn <- h2o.glm(y=y.dep, x=x.indep, training_frame = train.h2o)
+
+h2o.performance(deep_learn)
+
+```
+
+
+### Make final prediction for Iquito (test)
+
+```{r}
+
+iq_te <- all %>% filter(city == "iq" & type == "test")
+
+iq_te$weekofyear <- as.character(iq_te$weekofyear)
+
+```
+
+
+The missing values will be replaced by a forecast
+
+```{r, warning=F}
+
+iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date", "weekofyear")] ,  apply(X = iq_te[, which(sapply(iq_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+
+
+```
+
+
+```{r}
+iq_te$type <- NULL
+iq_te$city <- NULL
+#iq_te$year <- NULL
+#iq_te$week_start_date <- NULL
+
+
+
+
+```
+
+Predict iq
+
+```{r, warning=F}
+
+
+
+test.h2o <- as.h2o(iq_te)
+
+predict.deep_learn <- as.data.frame(h2o.predict(deep_learn, test.h2o))
+
+iq_te$total_cases <- predict.deep_learn$predict
+
+
+
+```
+
+# Final Submission using RF
+
+```{r, warning=F}
+
+
+iq_te$city <- "iq" 
+
+iq_te$type <- "test"
+
+rf_final_df <- rbind(iq_te[ , c("city", "type", "total_cases","weekofyear", "week_start_date", "year")], 
+                     sj_te[ , c("city", "type", "total_cases","weekofyear", "week_start_date", "year")])
+
+submission_format$total_cases <- 10
+
+
+submission_format$year <- as.character(submission_format$year)
+
+submission_format$weekofyear <- as.character(submission_format$weekofyear)
+
+submission_rf <- full_join(x = submission_format, y = rf_final_df, by = c("year","weekofyear", "city"))
+
+data.table::setnames(submission_rf, old = "total_cases.y", "total_cases")
+
+submission_rf$total_cases <- base::round(submission_rf$total_cases,0) # Round
+
+
+submission_rf$total_cases[submission_rf$total_cases < 0 ] <- 0
+
+#base::which(submission_rf$total_cases < 0) <- 0
+#if negative, change to 0
+```
+
+
+```{r}
+
+ggplot(sj, aes(week_start_date, y = total_cases)) + geom_line()
+ggplot(iq, aes(week_start_date, y = total_cases)) + geom_line()
+
+ggplot(submission_rf, aes(week_start_date, total_cases)) + geom_line() + facet_wrap(city~.)
+
+submission_rf <- submission_rf %>% select(city, year, weekofyear, total_cases) 
+
+write.csv(submission_rf, "submission_rf.csv", quote = F, row.names = F)
+
+summary(submission_format)
+
+summary(submission_rf)
+
+
+```
+
+```{r}
+```
+
