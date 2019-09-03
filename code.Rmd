@@ -16,7 +16,8 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, data.table, lubridate, corrplot, quantreg, iClick)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun)
+
 
 features_tr <- read_csv("./input/dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -30,7 +31,6 @@ submission_format <- read_csv("./input/submission_format.csv")
 
 
 options(scipen=999)
-
 
 
 ```
@@ -109,9 +109,6 @@ The missing values will be replaced by a forecast
 sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 
-
-#write.csv(sj, "sj.csv")
-
 ```
 
 Iquitos
@@ -127,7 +124,7 @@ ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_t
 
 iq <- cbind(iq[ , c("city", "type", "week_start_date")] ,  apply(X = iq[, which(sapply(iq,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
-#write.csv(iq, "iq.csv")
+
 ```
 
 total cases across cities
@@ -240,6 +237,7 @@ train model to predict Test (All train)
 sj$year <- as.character(sj$year)
 
 preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale","pca"))
+
 
 sj <- predict(preprocessparams, sj)
 
@@ -411,120 +409,119 @@ summary(submission_rf)
 ```
 
 
-<!-- # Prophet -->
+# Prophet
 
-<!-- ## Prophet San Juan -->
+## Prophet San Juan
 
-<!-- ```{r, warning=F} -->
+```{r warning=FALSE}
 
-<!-- sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y")) -->
-
-<!-- sj_prohet_model <- prophet::prophet(sj_prophet) -->
-
-<!-- ?prophet -->
-
-<!-- future <- make_future_dataframe(sj_prohet_model, 500, freq = "week") -->
-
-<!-- forecast <- predict(sj_prohet_model, future) -->
-
-<!-- forecast$year <- year(forecast$ds) -->
-
-<!-- forecast$weekofyear <- week(forecast$ds) -->
+sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y"))
 
 
-<!-- dyplot.prophet(x = sj_prohet_model, fcst = forecast) -->
+sj_prohet_model <- prophet::prophet(sj_prophet, daily.seasonality = F, weekly.seasonality = F, yearly.seasonality = T, seasonality.mode = "multiplicative")
 
-<!-- ``` -->
+future <- make_future_dataframe(sj_prohet_model, 500, freq = "week")
 
-<!-- ### Match Prophet and submission -->
+forecast <- predict(sj_prohet_model, future)
 
-<!-- ```{r, warning=F} -->
+forecast$year <- year(forecast$ds)
 
-
-<!-- forecast$ds <- as.Date(forecast$ds) -->
-
-<!-- forecast$city <- "sj" -->
-
-<!-- forecast_sj <- forecast -->
-
-<!-- submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city")) -->
+forecast$weekofyear <- week(forecast$ds)
 
 
-<!-- ``` -->
+dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
-<!-- # Prophet Iquito -->
+```
 
+### Match Prophet and submission
 
-
-<!-- ```{r, warning=F} -->
-
-<!-- iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y")) -->
-
-<!-- iq_prohet_model <- prophet(iq_prophet) -->
-
-<!-- future <- make_future_dataframe(iq_prohet_model, 500, freq = "week") -->
-
-<!-- forecast <- predict(iq_prohet_model, future) -->
-
-<!-- forecast$year <- year(forecast$ds) -->
-
-<!-- forecast$weekofyear <- week(forecast$ds) -->
-
-<!-- dyplot.prophet(x = iq_prohet_model, fcst = forecast) -->
-
-<!-- ``` -->
-
-<!-- ### Match Prophet and submission -->
-
-<!-- ```{r, warning=F} -->
+```{r, warning=F}
 
 
-<!-- forecast$ds <- as.Date(forecast$ds) -->
+forecast$ds <- as.Date(forecast$ds)
 
-<!-- forecast$city <- "iq" -->
+forecast$city <- "sj"
 
-<!-- forecast <- rbind(forecast_sj, forecast) -->
+forecast_sj <- forecast
 
-<!-- submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city")) -->
-
-<!-- submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 week year -->
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
 
 
-<!-- ``` -->
+```
 
-<!-- ### Change negative values to 0 -->
-
-<!-- ```{r, warning=F} -->
-
-<!-- submission$yhat[submission$yhat < 0 ] <- 0 -->
-
-<!-- submission$total_cases <- submission$yhat -->
-
-<!-- submission <- submission %>% select(city, year, weekofyear, total_cases) -->
-
-<!-- submission$total_cases <- base::round(submission$total_cases,0) -->
-
-<!-- write.csv(submission, "submission.csv", quote = F, row.names = F) -->
+# Prophet Iquito
 
 
 
-<!-- ``` -->
+```{r, warning=F}
+
+iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y"))
+
+iq_prohet_model <- prophet(iq_prophet)
+
+future <- make_future_dataframe(iq_prohet_model, 500, freq = "week")
+
+forecast <- predict(iq_prohet_model, future)
+
+forecast$year <- year(forecast$ds)
+
+forecast$weekofyear <- week(forecast$ds)
+
+dyplot.prophet(x = iq_prohet_model, fcst = forecast)
+
+```
+
+### Match Prophet and submission
+
+```{r, warning=F}
 
 
-<!-- ## Final final submission with the mean of both previous -->
+forecast$ds <- as.Date(forecast$ds)
 
-<!-- ```{r, warning=F} -->
+forecast$city <- "iq"
 
-<!-- submission_mean <- submission  -->
+forecast <- rbind(forecast_sj, forecast)
 
-<!-- a <- cbind(submission$total_cases, submission_rf$total_cases) -->
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
 
-<!-- submission_mean$total_cases <- round(apply(X = a, MARGIN = 1, function(x) mean(x)),0) -->
-
-<!-- write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F) -->
+submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 week year
 
 
-<!-- ``` -->
+```
+
+### Change negative values to 0
+
+```{r, warning=F}
+
+submission$yhat[submission$yhat < 0 ] <- 0
+
+submission$total_cases <- submission$yhat
+
+submission <- submission %>% select(city, year, weekofyear, total_cases)
+
+submission$total_cases <- base::round(submission$total_cases,0)
+
+write.csv(submission, "submission.csv", quote = F, row.names = F)
+
+
+
+```
+
+
+## Final final submission with the mean of both previous
+
+```{r, warning=F}
+
+submission_mean <- submission
+
+a <- cbind(submission$total_cases, submission_rf$total_cases)
+
+submission_mean$total_cases <- round(apply(X = a, MARGIN = 1, function(x) mean(x)),0)
+
+write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F)
+
+
+```
 
 <!-- <!-- begin wwww.htmlcommentbox.com --> -->
 <!-- <div id="HCB_comment_box"><a href="http://www.htmlcommentbox.com">Comment Box</a> is loading comments...</div> -->
