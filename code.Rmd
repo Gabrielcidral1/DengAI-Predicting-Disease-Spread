@@ -16,7 +16,7 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun, randomForest)
 
 
 features_tr <- read_csv("./input/dengue_features_train.csv", 
@@ -53,7 +53,7 @@ summary(all[ , c("station_avg_temp_c", "reanalysis_avg_temp_k", "reanalysis_air_
 
 summary(all[ , c("station_precip_mm", "precipitation_amt_mm")])
 
-all %>% group_by(city,year, week_start_date) %>%  mutate(avg_temp = mean(reanalysis_avg_temp_k, reanalysis_air_temp_k, na.rm = T, trim = 0), avg_precip = mean(station_precip_mm, precipitation_amt_mm, na.rm = T, trim = 0),  station_avg_temp_c = NULL, reanalysis_avg_temp_k = NULL, reanalysis_air_temp_k = NULL, station_precip_mm = NULL, precipitation_amt_mm = NULL) # Create avg of tempearature and preciptation
+all <- all %>% group_by(city,year, week_start_date) %>%  mutate(avg_temp = mean(reanalysis_avg_temp_k, reanalysis_air_temp_k, na.rm = T, trim = 0), avg_precip = mean(station_precip_mm, precipitation_amt_mm, na.rm = T, trim = 0),  station_avg_temp_c = NULL, reanalysis_avg_temp_k = NULL, reanalysis_air_temp_k = NULL, station_precip_mm = NULL, precipitation_amt_mm = NULL) # Create avg of tempearature and preciptation
 
 
 ```
@@ -73,12 +73,6 @@ the plots below confirm that most of the predictors haves similar distributions 
 
 ```{r, warning=F}
 
-train$type <- "train"
-
-test$type <- "test"
-
-all <- rbind(train, test)
-
 # for (i in names(all)) {
 # x <- ggplot(data = all,aes_string(i,color="type")) + geom_density()
 # print(x)
@@ -92,13 +86,13 @@ all <- rbind(train, test)
 
 ```{r, warning=F}
 
-sj <-  all %>% filter(city == "sj" | type == "train") 
+sj <-  all %>% filter(city == "sj" & type == "train") 
 
-ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
+# ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
+# 
+# ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
 
-ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
-
-
+tail(sj)
 ```
 
 
@@ -115,12 +109,11 @@ Iquitos
 
 ```{r}
 
-iq <- all %>% filter(city == "iq" | type == "train")
+iq <- all %>% filter(city == "iq" & type == "train")
 
-ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
-
-ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_temp_rng_c))) + geom_line()
-
+# ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
+# 
+# ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_temp_rng_c))) + geom_line()
 
 iq <- cbind(iq[ , c("city", "type", "week_start_date")] ,  apply(X = iq[, which(sapply(iq,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
@@ -133,19 +126,23 @@ total cases across cities
 ggplot(sj, aes(week_start_date, y = total_cases)) + geom_line()
 ggplot(iq, aes(week_start_date, y = total_cases)) + geom_line()
 
+tail(sj)
+
+ggplot(filter(all, type == "train"), aes(week_start_date, total_cases, color = c(city))) + geom_line()
+
+
 ```
 
 ## Correlation analysis (with lags)
-
 
 ### melt data to plot variables against total_cases
 
 ```{r}
 m <- reshape::melt(data = sj, id.vars = c("city", "type", "week_start_date", "year", "weekofyear")) # create a melted dataframe
 
-ggplot(filter(m, variable %in% c("ndvi_ne", "total_cases")), aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
-
-m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+# ggplot(filter(m, variable %in% c("ndvi_ne", "total_cases")), aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+# 
+# m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
 
 
 ```
@@ -197,17 +194,17 @@ head(pairwise)
 ```{r, warning=F}
 compare_cor <- c()
 
-for(i in 1:20) {
+# for(i in 1:20) {
+# 
+# a <- sj %>% select(station_avg_temp_c,total_cases)  
+#     
+# b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)), method = "spearman" , use = "complete.obs")
+# 
+# compare_cor <- rbind(compare_cor, b[1,])
+# 
+# }
 
-a <- sj %>% select(station_avg_temp_c,total_cases)  
-    
-b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)), method = "spearman" , use = "complete.obs")
-
-compare_cor <- rbind(compare_cor, b[1,])
-
-}
-
-which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
+# which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
 
 
@@ -222,7 +219,6 @@ which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
 sj$city <- NULL
 
-
 sj$weekofyear <- as.character(sj$weekofyear) 
 
 ```
@@ -236,13 +232,15 @@ train model to predict Test (All train)
 
 sj$year <- as.character(sj$year)
 
-preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale","pca"))
+preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale"))
 
 
 sj <- predict(preprocessparams, sj)
 
 sj$type <- NULL
 #sj$week_start_date <- NULL
+
+sj$total_cases <- sqrt(sj$total_cases)
 
 rf_reg <- tuneRF(x = sj[ , -which(names(sj) == "total_cases")], y = sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
@@ -252,6 +250,11 @@ postResample(sj$pred, sj$total_cases)
 
 ggplot(data = sj, aes(x = week_start_date)) + geom_line(aes(y = total_cases, color = "real")) + geom_line(aes(y = pred, color = "pred" )) 
 
+sj$pred <- NULL
+sj$type <- "train"
+
+
+
 ```
 
 ### Make final prediction for San Juan (test)
@@ -260,7 +263,7 @@ ggplot(data = sj, aes(x = week_start_date)) + geom_line(aes(y = total_cases, col
 
 sj_te <- all %>% filter(city == "sj" & type == "test")
 
-sj_te$year <- as.character(sj_te$year)
+#sj_te$year <- as.character(sj_te$year)
 
 ```
 
@@ -268,7 +271,7 @@ The missing values will be replaced by a forecast
 
 ```{r, warning=F}
 
-sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date","year")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 ```
 
@@ -281,6 +284,13 @@ sj_te <- predict(preprocessparams, sj_te)
 
 sj_te$total_cases <- predict(rf_reg , sj_te)
 
+
+
+#sj_te$total_cases <- sj_te$total_cases^2
+
+ggplot(sj_te, aes(week_start_date, total_cases)) + geom_line()
+
+ggplot(data = rbind(sj[, c(1,24,26)], sj_te[ , c(3,26,2)]), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
 
 ```
@@ -311,8 +321,6 @@ preprocessparams <- preProcess(x = select(iq[ , which(sapply(iq,is.numeric))], -
 
 iq <- predict(preprocessparams, iq)
 
-
-is.numeric(iq$total_cases)
 
 rf_reg <- tuneRF(x = iq[ , -which(colnames(iq)=="total_cases")], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
