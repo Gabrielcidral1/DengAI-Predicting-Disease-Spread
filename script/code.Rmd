@@ -16,18 +16,17 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun, randomForest)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun, randomForest, forecast)
 
-
-features_tr <- read_csv("./input/dengue_features_train.csv", 
+features_tr <- read_csv("../input/dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
 
-labels_tr <- read_csv("./input/dengue_labels_train.csv")
+labels_tr <- read_csv("../input/dengue_labels_train.csv")
 
-features_te <- read_csv("./input/dengue_features_test.csv", 
+features_te <- read_csv("../input/dengue_features_test.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
 
-submission_format <- read_csv("./input/submission_format.csv")
+submission_format <- read_csv("../input/submission_format.csv")
 
 
 options(scipen=999)
@@ -79,8 +78,6 @@ the plots below confirm that most of the predictors haves similar distributions 
 # }
 ```
 
-### treat NAs
-
 
 ## Split data by city 
 
@@ -96,9 +93,15 @@ tail(sj)
 ```
 
 
+### Missing value analysis
+
 The missing values will be replaced by a forecast
 
 ```{r}
+
+apply(X = sj, 2, function(x) sum(is.na(x))/nrow(sj)) # Get percentage of missing value by column
+
+sj$ndvi_ne <- NULL # ndvi_ne has 20% of missing values so will not be considered 
 
 sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
@@ -110,6 +113,8 @@ Iquitos
 ```{r}
 
 iq <- all %>% filter(city == "iq" & type == "train")
+
+apply(X = iq, 2, function(x) sum(is.na(x))/nrow(sj)) # Get percentage of missing value by column
 
 # ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
 # 
@@ -194,15 +199,22 @@ head(pairwise)
 ```{r, warning=F}
 compare_cor <- c()
 
-# for(i in 1:20) {
-# 
-# a <- sj %>% select(station_avg_temp_c,total_cases)  
-#     
-# b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)), method = "spearman" , use = "complete.obs")
-# 
-# compare_cor <- rbind(compare_cor, b[1,])
-# 
-# }
+for(i in 0:1) {
+  for(j in 1:ncol(sj[ , which(sapply(sj,is.numeric))])){
+
+b <- stats::cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , j],i)), method = "spearman" , use = "complete.obs")
+
+compare_cor <- cbind(compare_cor, b[1,2])
+
+}
+}
+
+compare_cor <- as.data.frame(compare_cor)
+
+names(compare_cor) <- rep(names(sj[ , which(sapply(sj,is.numeric))]),2) # change number by number of lags in loop
+
+x <- cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , 1],1)), method = "spearman" , use = "complete.obs")
+
 
 # which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
@@ -232,7 +244,7 @@ train model to predict Test (All train)
 
 sj$year <- as.character(sj$year)
 
-preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale"))
+preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale", "pca"))
 
 
 sj <- predict(preprocessparams, sj)
@@ -240,7 +252,9 @@ sj <- predict(preprocessparams, sj)
 sj$type <- NULL
 #sj$week_start_date <- NULL
 
-sj$total_cases <- sqrt(sj$total_cases)
+opt_lambda <- BoxCox.lambda(sj$total_cases)
+
+sj$total_cases <- BoxCox(sj$total_cases, lambda = opt_lambda)
 
 rf_reg <- tuneRF(x = sj[ , -which(names(sj) == "total_cases")], y = sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
@@ -284,14 +298,18 @@ sj_te <- predict(preprocessparams, sj_te)
 
 sj_te$total_cases <- predict(rf_reg , sj_te)
 
-
-
 #sj_te$total_cases <- sj_te$total_cases^2
 
 ggplot(sj_te, aes(week_start_date, total_cases)) + geom_line()
 
-ggplot(data = rbind(sj[, c(1,24,26)], sj_te[ , c(3,26,2)]), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
+sj$year <- as.numeric(sj$year)
+sj$weekofyear <- as.numeric(sj$weekofyear)
 
+sj$total_cases <- InvBoxCox(sj$total_cases, opt_lambda)
+
+sj_te$total_cases <- InvBoxCox(sj_te$total_cases, lambda = opt_lambda)
+
+ggplot(data = union_all(sj, sj_te), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
 ```
 
@@ -317,18 +335,22 @@ iq$type <- NULL
 
 iq$year <- as.character(iq$year)
 
-preprocessparams <- preProcess(x = select(iq[ , which(sapply(iq,is.numeric))], -total_cases),method = c("pca"))
+preprocessparams <- preProcess(x = select(iq[ , which(sapply(iq,is.numeric))], -total_cases),method = c("center", "scale","pca"))
 
 iq <- predict(preprocessparams, iq)
 
+opt_lambda <- BoxCox.lambda(iq$total_cases)
+
+iq$total_cases <- BoxCox(iq$total_cases, lambda = opt_lambda)
 
 rf_reg <- tuneRF(x = iq[ , -which(colnames(iq)=="total_cases")], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 iq$pred <- predict(rf_reg, iq)
 
-
 ggplot(data = iq, aes(x = week_start_date)) + geom_line(aes(y = total_cases, color = "real")) + geom_line(aes(y = pred, color = "pred" )) 
+combined_iq <- c()
 
+combined_iq <- cbind(combined_iq, postResample(iq$total_cases, iq$pred))
 
 ```
 
@@ -352,7 +374,7 @@ iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date", "weekofyear")] ,  a
 
 
 ```{r}
-iq_te$type <- NULL
+#iq_te$type <- NULL
 iq_te$city <- NULL
 #iq_te$year <- NULL
 #iq_te$week_start_date <- NULL
@@ -362,13 +384,25 @@ iq_te$weekofyear <- as.character(iq_te$weekofyear)
 
 iq_te <- predict(preprocessparams, iq_te)
 
-
 ```
 
 
 ```{r, warning=F}
 
 iq_te$total_cases <- predict(rf_reg, iq_te)
+
+
+iq$year <- as.numeric(iq$year)
+iq$weekofyear <- as.numeric(iq$weekofyear)
+iq_te$weekofyear <- as.numeric(iq_te$weekofyear)
+
+iq$type <- "train"
+
+iq$total_cases <- InvBoxCox(iq$total_cases, opt_lambda)
+
+iq_te$total_cases <- InvBoxCox(iq_te$total_cases, lambda = opt_lambda)
+
+ggplot(data = union_all(iq, iq_te), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
 
 ```
@@ -388,9 +422,9 @@ rf_final_df <- rbind(iq_te[ , c("city", "type", "total_cases","weekofyear", "wee
 submission_format$total_cases <- 10
 
 
-submission_format$year <- as.character(submission_format$year)
+#submission_format$year <- as.character(submission_format$year)
 
-submission_format$weekofyear <- as.character(submission_format$weekofyear)
+#submission_format$weekofyear <- as.character(submission_format$weekofyear)
 
 submission_rf <- full_join(x = submission_format, y = rf_final_df, by = c("year","weekofyear", "city"))
 
@@ -425,8 +459,9 @@ summary(submission_rf)
 
 sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y"))
 
+library(prophet)
 
-sj_prohet_model <- prophet::prophet(sj_prophet, daily.seasonality = F, weekly.seasonality = F, yearly.seasonality = T, seasonality.mode = "multiplicative")
+sj_prohet_model <- prophet(sj_prophet, daily.seasonality = F, weekly.seasonality = F, yearly.seasonality = T, seasonality.mode = "multiplicative")
 
 future <- make_future_dataframe(sj_prohet_model, 500, freq = "week")
 
