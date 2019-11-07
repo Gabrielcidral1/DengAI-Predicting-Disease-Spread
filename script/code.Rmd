@@ -16,21 +16,20 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS, randomForest, prophet, data.table, lubridate, corrplot, quantreg, iClick)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun, randomForest, forecast)
 
-features_tr <- read_csv("./input/dengue_features_train.csv", 
+features_tr <- read_csv("../input/dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
 
-labels_tr <- read_csv("./input/dengue_labels_train.csv")
+labels_tr <- read_csv("../input/dengue_labels_train.csv")
 
-features_te <- read_csv("./input/dengue_features_test.csv", 
+features_te <- read_csv("../input/dengue_features_test.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
 
-submission_format <- read_csv("./input/submission_format.csv")
+submission_format <- read_csv("../input/submission_format.csv")
 
 
 options(scipen=999)
-
 
 
 ```
@@ -53,7 +52,7 @@ summary(all[ , c("station_avg_temp_c", "reanalysis_avg_temp_k", "reanalysis_air_
 
 summary(all[ , c("station_precip_mm", "precipitation_amt_mm")])
 
-all %>% group_by(city,year, week_start_date) %>%  mutate(avg_temp = mean(reanalysis_avg_temp_k, reanalysis_air_temp_k, na.rm = T, trim = 0), avg_precip = mean(station_precip_mm, precipitation_amt_mm, na.rm = T, trim = 0),  station_avg_temp_c = NULL, reanalysis_avg_temp_k = NULL, reanalysis_air_temp_k = NULL, station_precip_mm = NULL, precipitation_amt_mm = NULL) # Create avg of tempearature and preciptation
+all <- all %>% group_by(city,year, week_start_date) %>%  mutate(avg_temp = mean(reanalysis_avg_temp_k, reanalysis_air_temp_k, na.rm = T, trim = 0), avg_precip = mean(station_precip_mm, precipitation_amt_mm, na.rm = T, trim = 0),  station_avg_temp_c = NULL, reanalysis_avg_temp_k = NULL, reanalysis_air_temp_k = NULL, station_precip_mm = NULL, precipitation_amt_mm = NULL) # Create avg of tempearature and preciptation
 
 
 ```
@@ -73,42 +72,39 @@ the plots below confirm that most of the predictors haves similar distributions 
 
 ```{r, warning=F}
 
-train$type <- "train"
-
-test$type <- "test"
-
-all <- rbind(train, test)
-
 # for (i in names(all)) {
 # x <- ggplot(data = all,aes_string(i,color="type")) + geom_density()
 # print(x)
 # }
 ```
 
-### treat NAs
-
 
 ## Split data by city 
 
 ```{r, warning=F}
 
-sj <-  all %>% filter(city == "sj" | type == "train") 
+sj <-  all %>% filter(city == "sj" & type == "train") 
 
-ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
+# ggplot(data = sj, aes(week_start_date, station_precip_mm)) + geom_line()
+# 
+# ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
 
-ggplot(data = sj, aes(x = week_start_date, imputeTS::na.kalman(sj$station_precip_mm))) + geom_line()
-
-
+tail(sj)
 ```
 
+
+### Missing value analysis
 
 The missing values will be replaced by a forecast
 
 ```{r}
 
+apply(X = sj, 2, function(x) sum(is.na(x))/nrow(sj)) # Get percentage of missing value by column
+
+sj$ndvi_ne <- NULL # ndvi_ne has 20% of missing values so will not be considered 
+
 sj <- cbind(sj[ , c("city", "type", "week_start_date")] ,  apply(X = sj[, which(sapply(sj,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
-#write.csv(sj, "sj.csv")
 
 ```
 
@@ -116,16 +112,17 @@ Iquitos
 
 ```{r}
 
-iq <- all %>% filter(city == "iq" | type == "train")
+iq <- all %>% filter(city == "iq" & type == "train")
 
-ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
+apply(X = iq, 2, function(x) sum(is.na(x))/nrow(sj)) # Get percentage of missing value by column
 
-ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_temp_rng_c))) + geom_line()
-
+# ggplot(data = iq, aes(week_start_date, station_diur_temp_rng_c)) + geom_line()
+# 
+# ggplot(data = iq, aes(x = week_start_date, imputeTS::na.kalman(iq$station_diur_temp_rng_c))) + geom_line()
 
 iq <- cbind(iq[ , c("city", "type", "week_start_date")] ,  apply(X = iq[, which(sapply(iq,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
-#write.csv(iq, "iq.csv")
+
 ```
 
 total cases across cities
@@ -134,19 +131,23 @@ total cases across cities
 ggplot(sj, aes(week_start_date, y = total_cases)) + geom_line()
 ggplot(iq, aes(week_start_date, y = total_cases)) + geom_line()
 
+tail(sj)
+
+ggplot(filter(all, type == "train"), aes(week_start_date, total_cases, color = c(city))) + geom_line()
+
+
 ```
 
 ## Correlation analysis (with lags)
-
 
 ### melt data to plot variables against total_cases
 
 ```{r}
 m <- reshape::melt(data = sj, id.vars = c("city", "type", "week_start_date", "year", "weekofyear")) # create a melted dataframe
 
-ggplot(filter(m, variable %in% c("ndvi_ne", "total_cases")), aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
-
-m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+# ggplot(filter(m, variable %in% c("ndvi_ne", "total_cases")), aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
+# 
+# m %>% filter(variable %in% c("station_min_temp_c", "total_cases")) %>%  ggplot(aes(week_start_date, y = value))+ geom_line() + facet_grid(variable~., scales = "free")
 
 
 ```
@@ -198,17 +199,24 @@ head(pairwise)
 ```{r, warning=F}
 compare_cor <- c()
 
-for(i in 1:20) {
+for(i in 0:1) {
+  for(j in 1:ncol(sj[ , which(sapply(sj,is.numeric))])){
 
-a <- sj %>% select(station_avg_temp_c,total_cases)  
-    
-b <- stats::cor(cbind(a$total_cases, lag(a$station_avg_temp_c,i)), method = "spearman" , use = "complete.obs")
+b <- stats::cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , j],i)), method = "spearman" , use = "complete.obs")
 
-compare_cor <- rbind(compare_cor, b[1,])
+compare_cor <- cbind(compare_cor, b[1,2])
 
 }
+}
 
-which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
+compare_cor <- as.data.frame(compare_cor)
+
+names(compare_cor) <- rep(names(sj[ , which(sapply(sj,is.numeric))]),2) # change number by number of lags in loop
+
+x <- cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , 1],1)), method = "spearman" , use = "complete.obs")
+
+
+# which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
 
 
@@ -223,7 +231,6 @@ which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
 
 sj$city <- NULL
 
-
 sj$weekofyear <- as.character(sj$weekofyear) 
 
 ```
@@ -237,12 +244,17 @@ train model to predict Test (All train)
 
 sj$year <- as.character(sj$year)
 
-preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale","pca"))
+preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale", "pca"))
+
 
 sj <- predict(preprocessparams, sj)
 
 sj$type <- NULL
 #sj$week_start_date <- NULL
+
+opt_lambda <- BoxCox.lambda(sj$total_cases)
+
+sj$total_cases <- BoxCox(sj$total_cases, lambda = opt_lambda)
 
 rf_reg <- tuneRF(x = sj[ , -which(names(sj) == "total_cases")], y = sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
@@ -252,6 +264,11 @@ postResample(sj$pred, sj$total_cases)
 
 ggplot(data = sj, aes(x = week_start_date)) + geom_line(aes(y = total_cases, color = "real")) + geom_line(aes(y = pred, color = "pred" )) 
 
+sj$pred <- NULL
+sj$type <- "train"
+
+
+
 ```
 
 ### Make final prediction for San Juan (test)
@@ -260,7 +277,7 @@ ggplot(data = sj, aes(x = week_start_date)) + geom_line(aes(y = total_cases, col
 
 sj_te <- all %>% filter(city == "sj" & type == "test")
 
-sj_te$year <- as.character(sj_te$year)
+#sj_te$year <- as.character(sj_te$year)
 
 ```
 
@@ -268,7 +285,7 @@ The missing values will be replaced by a forecast
 
 ```{r, warning=F}
 
-sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date","year")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
+sj_te <- cbind(sj_te[ , c("city", "type", "week_start_date")] ,  apply(X = sj_te[, which(sapply(sj_te,is.numeric))], MARGIN = 2, function(x) imputeTS::na.kalman(x)))
 
 ```
 
@@ -281,7 +298,18 @@ sj_te <- predict(preprocessparams, sj_te)
 
 sj_te$total_cases <- predict(rf_reg , sj_te)
 
+#sj_te$total_cases <- sj_te$total_cases^2
 
+ggplot(sj_te, aes(week_start_date, total_cases)) + geom_line()
+
+sj$year <- as.numeric(sj$year)
+sj$weekofyear <- as.numeric(sj$weekofyear)
+
+sj$total_cases <- InvBoxCox(sj$total_cases, opt_lambda)
+
+sj_te$total_cases <- InvBoxCox(sj_te$total_cases, lambda = opt_lambda)
+
+ggplot(data = union_all(sj, sj_te), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
 ```
 
@@ -307,20 +335,22 @@ iq$type <- NULL
 
 iq$year <- as.character(iq$year)
 
-preprocessparams <- preProcess(x = select(iq[ , which(sapply(iq,is.numeric))], -total_cases),method = c("pca"))
+preprocessparams <- preProcess(x = select(iq[ , which(sapply(iq,is.numeric))], -total_cases),method = c("center", "scale","pca"))
 
 iq <- predict(preprocessparams, iq)
 
+opt_lambda <- BoxCox.lambda(iq$total_cases)
 
-is.numeric(iq$total_cases)
+iq$total_cases <- BoxCox(iq$total_cases, lambda = opt_lambda)
 
 rf_reg <- tuneRF(x = iq[ , -which(colnames(iq)=="total_cases")], iq$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
 iq$pred <- predict(rf_reg, iq)
 
-
 ggplot(data = iq, aes(x = week_start_date)) + geom_line(aes(y = total_cases, color = "real")) + geom_line(aes(y = pred, color = "pred" )) 
+combined_iq <- c()
 
+combined_iq <- cbind(combined_iq, postResample(iq$total_cases, iq$pred))
 
 ```
 
@@ -344,7 +374,7 @@ iq_te <- cbind(iq_te[ , c("city", "type", "week_start_date", "weekofyear")] ,  a
 
 
 ```{r}
-iq_te$type <- NULL
+#iq_te$type <- NULL
 iq_te$city <- NULL
 #iq_te$year <- NULL
 #iq_te$week_start_date <- NULL
@@ -354,13 +384,25 @@ iq_te$weekofyear <- as.character(iq_te$weekofyear)
 
 iq_te <- predict(preprocessparams, iq_te)
 
-
 ```
 
 
 ```{r, warning=F}
 
 iq_te$total_cases <- predict(rf_reg, iq_te)
+
+
+iq$year <- as.numeric(iq$year)
+iq$weekofyear <- as.numeric(iq$weekofyear)
+iq_te$weekofyear <- as.numeric(iq_te$weekofyear)
+
+iq$type <- "train"
+
+iq$total_cases <- InvBoxCox(iq$total_cases, opt_lambda)
+
+iq_te$total_cases <- InvBoxCox(iq_te$total_cases, lambda = opt_lambda)
+
+ggplot(data = union_all(iq, iq_te), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
 
 ```
@@ -380,9 +422,9 @@ rf_final_df <- rbind(iq_te[ , c("city", "type", "total_cases","weekofyear", "wee
 submission_format$total_cases <- 10
 
 
-submission_format$year <- as.character(submission_format$year)
+#submission_format$year <- as.character(submission_format$year)
 
-submission_format$weekofyear <- as.character(submission_format$weekofyear)
+#submission_format$weekofyear <- as.character(submission_format$weekofyear)
 
 submission_rf <- full_join(x = submission_format, y = rf_final_df, by = c("year","weekofyear", "city"))
 
@@ -392,6 +434,7 @@ submission_rf$total_cases <- base::round(submission_rf$total_cases,0) # Round
 
 ggplot(submission_rf, aes(week_start_date, total_cases)) + geom_line() + facet_wrap(city~.)
 
+ggplot(rf_final_df, aes(week_start_date, total_cases)) + geom_line() + facet_wrap(city~.)
 
 ```
 
@@ -408,120 +451,120 @@ summary(submission_rf)
 ```
 
 
-<!-- # Prophet -->
+# Prophet
 
-<!-- ## Prophet San Juan -->
+## Prophet San Juan
 
-<!-- ```{r, warning=F} -->
+```{r warning=FALSE}
 
-<!-- sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y")) -->
+sj_prophet <- setnames(sj, c("week_start_date", "total_cases"),new = c("ds","y"))
 
-<!-- sj_prohet_model <- prophet::prophet(sj_prophet) -->
+library(prophet)
 
-<!-- ?prophet -->
+sj_prohet_model <- prophet(sj_prophet, daily.seasonality = F, weekly.seasonality = F, yearly.seasonality = T, seasonality.mode = "multiplicative")
 
-<!-- future <- make_future_dataframe(sj_prohet_model, 500, freq = "week") -->
+future <- make_future_dataframe(sj_prohet_model, 500, freq = "week")
 
-<!-- forecast <- predict(sj_prohet_model, future) -->
+forecast <- predict(sj_prohet_model, future)
 
-<!-- forecast$year <- year(forecast$ds) -->
+forecast$year <- year(forecast$ds)
 
-<!-- forecast$weekofyear <- week(forecast$ds) -->
-
-
-<!-- dyplot.prophet(x = sj_prohet_model, fcst = forecast) -->
-
-<!-- ``` -->
-
-<!-- ### Match Prophet and submission -->
-
-<!-- ```{r, warning=F} -->
+forecast$weekofyear <- week(forecast$ds)
 
 
-<!-- forecast$ds <- as.Date(forecast$ds) -->
+dyplot.prophet(x = sj_prohet_model, fcst = forecast)
 
-<!-- forecast$city <- "sj" -->
+```
 
-<!-- forecast_sj <- forecast -->
+### Match Prophet and submission
 
-<!-- submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city")) -->
-
-
-<!-- ``` -->
-
-<!-- # Prophet Iquito -->
+```{r, warning=F}
 
 
+forecast$ds <- as.Date(forecast$ds)
 
-<!-- ```{r, warning=F} -->
+forecast$city <- "sj"
 
-<!-- iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y")) -->
+forecast_sj <- forecast
 
-<!-- iq_prohet_model <- prophet(iq_prophet) -->
-
-<!-- future <- make_future_dataframe(iq_prohet_model, 500, freq = "week") -->
-
-<!-- forecast <- predict(iq_prohet_model, future) -->
-
-<!-- forecast$year <- year(forecast$ds) -->
-
-<!-- forecast$weekofyear <- week(forecast$ds) -->
-
-<!-- dyplot.prophet(x = iq_prohet_model, fcst = forecast) -->
-
-<!-- ``` -->
-
-<!-- ### Match Prophet and submission -->
-
-<!-- ```{r, warning=F} -->
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
 
 
-<!-- forecast$ds <- as.Date(forecast$ds) -->
+```
 
-<!-- forecast$city <- "iq" -->
-
-<!-- forecast <- rbind(forecast_sj, forecast) -->
-
-<!-- submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city")) -->
-
-<!-- submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 week year -->
-
-
-<!-- ``` -->
-
-<!-- ### Change negative values to 0 -->
-
-<!-- ```{r, warning=F} -->
-
-<!-- submission$yhat[submission$yhat < 0 ] <- 0 -->
-
-<!-- submission$total_cases <- submission$yhat -->
-
-<!-- submission <- submission %>% select(city, year, weekofyear, total_cases) -->
-
-<!-- submission$total_cases <- base::round(submission$total_cases,0) -->
-
-<!-- write.csv(submission, "submission.csv", quote = F, row.names = F) -->
+# Prophet Iquito
 
 
 
-<!-- ``` -->
+```{r, warning=F}
+
+iq_prophet <- setnames(iq, c("week_start_date", "total_cases"),new = c("ds","y"))
+
+iq_prohet_model <- prophet(iq_prophet)
+
+future <- make_future_dataframe(iq_prohet_model, 500, freq = "week")
+
+forecast <- predict(iq_prohet_model, future)
+
+forecast$year <- year(forecast$ds)
+
+forecast$weekofyear <- week(forecast$ds)
+
+dyplot.prophet(x = iq_prohet_model, fcst = forecast)
+
+```
+
+### Match Prophet and submission
+
+```{r, warning=F}
 
 
-<!-- ## Final final submission with the mean of both previous -->
+forecast$ds <- as.Date(forecast$ds)
 
-<!-- ```{r, warning=F} -->
+forecast$city <- "iq"
 
-<!-- submission_mean <- submission  -->
+forecast <- rbind(forecast_sj, forecast)
 
-<!-- a <- cbind(submission$total_cases, submission_rf$total_cases) -->
+submission <- left_join(submission_format, y = forecast[ , c("ds","weekofyear","year", "yhat", "city")], by = c("year","weekofyear", "city"))
 
-<!-- submission_mean$total_cases <- round(apply(X = a, MARGIN = 1, function(x) mean(x)),0) -->
-
-<!-- write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F) -->
+submission$yhat <- imputeTS::na.kalman(submission$yhat) # fill NAs due to 53 week year
 
 
-<!-- ``` -->
+```
+
+### Change negative values to 0
+
+```{r, warning=F}
+
+submission$yhat[submission$yhat < 0 ] <- 0
+
+submission$total_cases <- submission$yhat
+
+submission <- submission %>% select(city, year, weekofyear, total_cases)
+
+submission$total_cases <- base::round(submission$total_cases,0)
+
+write.csv(submission, "submission.csv", quote = F, row.names = F)
+
+
+
+```
+
+
+## Final final submission with the mean of both previous
+
+```{r, warning=F}
+
+submission_mean <- submission
+
+a <- cbind(submission$total_cases, submission_rf$total_cases)
+
+submission_mean$total_cases <- round(apply(X = a, MARGIN = 1, function(x) mean(x)),0)
+
+write.csv(submission_mean, "submission_mean.csv", quote = F, row.names = F)
+
+
+```
 
 <!-- <!-- begin wwww.htmlcommentbox.com --> -->
 <!-- <div id="HCB_comment_box"><a href="http://www.htmlcommentbox.com">Comment Box</a> is loading comments...</div> -->
