@@ -16,7 +16,8 @@ output:
 ## loading packages and data
 
 ```{r, warning=F, message=F}
-pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate, corrplot, quantreg, Ecfun, randomForest, forecast)
+pacman:: p_load(readr, h2o, dplyr,ggplot2, caret, imputTS,  data.table, lubridate,
+                corrplot, quantreg, Ecfun, randomForest, forecast, PMmisc)
 
 features_tr <- read_csv("../input/dengue_features_train.csv", 
     col_types = cols(week_start_date = col_date(format = "%Y-%m-%d")))
@@ -197,27 +198,18 @@ head(pairwise)
 ### Compare correlation by lags
 
 ```{r, warning=F}
-compare_cor <- c()
 
-for(i in 0:1) {
-  for(j in 1:ncol(sj[ , which(sapply(sj,is.numeric))])){
+x <- c()
+cor_cons <- c()
+for(i in names(sj[, which(sapply(sj,is.numeric))])) {
+x <- cor.lag(x = sj[ , i], y = sj$total_cases, lag = 10, lead = 10)
 
-b <- stats::cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , j],i)), method = "spearman" , use = "complete.obs")
-
-compare_cor <- cbind(compare_cor, b[1,2])
-
-}
+cor_cons <- rbind(cor_cons, x)
 }
 
-compare_cor <- as.data.frame(compare_cor)
+cor_cons$var <- names(sj[, which(sapply(sj,is.numeric))])
 
-names(compare_cor) <- rep(names(sj[ , which(sapply(sj,is.numeric))]),2) # change number by number of lags in loop
-
-x <- cor(cbind(sj$total_cases, lag(sj[ , which(sapply(sj,is.numeric))][ , 1],1)), method = "spearman" , use = "complete.obs")
-
-
-# which(abs(compare_cor[, 2]) == max(abs(compare_cor[,2])))
-
+cor_cons$best <- colnames(cor_cons)[apply(cor_cons,1,which.max)]
 
 
 
@@ -244,17 +236,18 @@ train model to predict Test (All train)
 
 sj$year <- as.character(sj$year)
 
-preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale", "pca"))
-
+preprocessparams <- preProcess(x = select(sj[ , which(sapply(sj,is.numeric))], -total_cases) ,method = c("center", "scale"))
 
 sj <- predict(preprocessparams, sj)
 
 sj$type <- NULL
 #sj$week_start_date <- NULL
 
-opt_lambda <- BoxCox.lambda(sj$total_cases)
+#opt_lambda <- BoxCox.lambda(sj$total_cases)
 
-sj$total_cases <- BoxCox(sj$total_cases, lambda = opt_lambda)
+#sj$total_cases <- BoxCox(sj$total_cases, lambda = opt_lambda)
+
+
 
 rf_reg <- tuneRF(x = sj[ , -which(names(sj) == "total_cases")], y = sj$total_cases, ntreeTry=100,stepFactor=2,improve=0.05,trace=TRUE, doBest = T) 
 
@@ -305,9 +298,9 @@ ggplot(sj_te, aes(week_start_date, total_cases)) + geom_line()
 sj$year <- as.numeric(sj$year)
 sj$weekofyear <- as.numeric(sj$weekofyear)
 
-sj$total_cases <- InvBoxCox(sj$total_cases, opt_lambda)
+#sj$total_cases <- InvBoxCox(sj$total_cases, opt_lambda)
 
-sj_te$total_cases <- InvBoxCox(sj_te$total_cases, lambda = opt_lambda)
+#sj_te$total_cases <- InvBoxCox(sj_te$total_cases, lambda = opt_lambda)
 
 ggplot(data = union_all(sj, sj_te), aes(x = week_start_date, y = total_cases, color = type)) + geom_line() 
 
